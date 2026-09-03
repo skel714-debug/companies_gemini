@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>Countries in 5 Dimensions - WebXR Scatter Plot</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #07101d; }
+    canvas { display: block; }
+    #hud {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 18px;
+    }
+    #topCard {
+      width: min(620px, calc(100vw - 36px));
+      padding: 16px 18px;
+      border-radius: 16px;
+      background: rgba(5, 12, 24, 0.86);
+      border: 1px solid rgba(255,255,255,0.14);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      backdrop-filter: blur(8px);
+      pointer-events: auto;
+    }
+    h1 { margin: 0 0 6px; font-size: clamp(20px, 3vw, 30px); line-height: 1.1; }
+    p { margin: 6px 0; line-height: 1.4; color: #dbeafe; }
+    .small { font-size: 13px; color: #b8c4d8; }
+    .warning { color: #fde68a; }
+    #actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,.22);
+      background: #163357;
+      color: white;
+      padding: 10px 14px;
+      border-radius: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      min-height: 44px;
+    }
+    button:hover { background: #204b7d; }
+    button:disabled { opacity: .42; cursor: not-allowed; }
+    #status {
+      align-self: flex-start;
+      max-width: 520px;
+      padding: 9px 12px;
+      border-radius: 12px;
+      background: rgba(5, 12, 24, .76);
+      border: 1px solid rgba(255,255,255,.10);
+      color: #dbeafe;
+      font-size: 13px;
+    }
+    #xrOverlayHint {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 11;
+      pointer-events: none;
+      display: none;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(3, 10, 20, .78);
+      border: 1px solid rgba(255,255,255,.15);
+      color: white;
+      font-weight: 650;
+      text-align: center;
+      max-width: calc(100vw - 32px);
+    }
+    body.xr-active #topCard { display: none; }
+    body.xr-active #status { display: none; }
+    body.xr-active #xrOverlayHint { display: block; }
+    @media (max-width: 700px) {
+      #hud { padding: 12px; }
+      #topCard { width: calc(100vw - 24px); padding: 13px 14px; }
+      .small { font-size: 12px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="hud">
+    <div id="topCard">
+      <h1>Countries in 5 Dimensions</h1>
+      <p>Income → X, life expectancy → Y, schooling → Z, region → colour, population → size.</p>
+      <p class="small"><strong>Quest controls:</strong> point with either controller. Pull the trigger on a country for details, or on a legend item to hide/show a region.</p>
+      <p class="small"><strong>Desktop:</strong> drag to orbit, scroll to zoom, click points or legend items.</p>
+      <p class="small warning"><strong>Data note:</strong> all figures are approximate, illustrative values assembled for this demo. They are not a citable statistical source.</p>
+      <div id="actions">
+        <button id="vrButton" disabled>Enter VR</button>
+        <button id="arButton" disabled>Enter Passthrough / MR</button>
+        <button id="resetButton">Reset View</button>
+      </div>
+    </div>
+    <div id="status">Checking WebXR support…</div>
+  </div>
+  <div id="xrOverlayHint">Point and trigger to explore. Trigger a region in the legend to toggle it.</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // IMPORTANT DATA NOTICE:
+    // The dataset below contains approximate, illustrative values created for this demo.
+    // It is intended for interaction/design testing only and is NOT a citable statistical source.
+
+    const countries = [
+      {n:'Algeria',r:'Africa',g:5200,l:76,s:8.0,p:46},{n:'Angola',r:'Africa',g:2600,l:62,s:5.3,p:37},
+      {n:'Botswana',r:'Africa',g:7800,l:66,s:10.3,p:2.5},{n:'Egypt',r:'Africa',g:4100,l:71,s:7.5,p:114},
+      {n:'Ethiopia',r:'Africa',g:1300,l:66,s:3.2,p:128},{n:'Ghana',r:'Africa',g:2400,l:64,s:8.1,p:34},
+      {n:'Kenya',r:'Africa',g:2100,l:63,s:6.7,p:55},{n:'Morocco',r:'Africa',g:3900,l:75,s:6.1,p:38},
+      {n:'Nigeria',r:'Africa',g:2200,l:55,s:7.2,p:229},{n:'Rwanda',r:'Africa',g:1000,l:67,s:4.5,p:14},
+      {n:'South Africa',r:'Africa',g:6200,l:64,s:11.4,p:63},{n:'Tanzania',r:'Africa',g:1300,l:67,s:6.4,p:68},
+      {n:'Argentina',r:'Americas',g:14000,l:77,s:11.2,p:46},{n:'Brazil',r:'Americas',g:10500,l:76,s:8.4,p:216},
+      {n:'Canada',r:'Americas',g:54000,l:83,s:13.9,p:41},{n:'Chile',r:'Americas',g:17000,l:81,s:11.1,p:20},
+      {n:'Colombia',r:'Americas',g:7200,l:77,s:8.9,p:52},{n:'Costa Rica',r:'Americas',g:14000,l:81,s:9.0,p:5.2},
+      {n:'Mexico',r:'Americas',g:13000,l:75,s:9.2,p:130},{n:'Peru',r:'Americas',g:7800,l:77,s:9.9,p:34},
+      {n:'United States',r:'Americas',g:82000,l:78,s:13.7,p:341},{n:'Uruguay',r:'Americas',g:22000,l:78,s:10.5,p:3.4},
+      {n:'Bangladesh',r:'Asia',g:2700,l:73,s:7.4,p:174},{n:'China',r:'Asia',g:13000,l:78,s:8.1,p:1410},
+      {n:'India',r:'Asia',g:2700,l:68,s:6.6,p:1430},{n:'Indonesia',r:'Asia',g:5200,l:71,s:8.8,p:280},
+      {n:'Israel',r:'Asia',g:55000,l:83,s:13.3,p:9.8},{n:'Japan',r:'Asia',g:34000,l:85,s:13.4,p:124},
+      {n:'Malaysia',r:'Asia',g:13000,l:76,s:10.7,p:35},{n:'Nepal',r:'Asia',g:1400,l:71,s:5.1,p:31},
+      {n:'Pakistan',r:'Asia',g:1600,l:67,s:4.5,p:245},{n:'Philippines',r:'Asia',g:4000,l:70,s:9.0,p:117},
+      {n:'Saudi Arabia',r:'Asia',g:33000,l:79,s:11.6,p:37},{n:'Singapore',r:'Asia',g:85000,l:84,s:11.9,p:5.9},
+      {n:'South Korea',r:'Asia',g:36000,l:84,s:12.6,p:52},{n:'Thailand',r:'Asia',g:7800,l:79,s:8.7,p:72},
+      {n:'Vietnam',r:'Asia',g:4700,l:75,s:8.5,p:101},{n:'United Arab Emirates',r:'Asia',g:53000,l:80,s:12.7,p:10},
+      {n:'Austria',r:'Europe',g:58000,l:82,s:12.3,p:9.2},{n:'Czechia',r:'Europe',g:31000,l:80,s:13.1,p:10.9},
+      {n:'Denmark',r:'Europe',g:69000,l:82,s:13.0,p:6.0},{n:'France',r:'Europe',g:46000,l:83,s:11.6,p:68},
+      {n:'Germany',r:'Europe',g:54000,l:81,s:14.2,p:84},{n:'Greece',r:'Europe',g:24000,l:82,s:11.4,p:10.3},
+      {n:'Italy',r:'Europe',g:39000,l:84,s:10.8,p:59},{n:'Netherlands',r:'Europe',g:63000,l:82,s:12.6,p:18},
+      {n:'Norway',r:'Europe',g:88000,l:83,s:13.1,p:5.6},{n:'Poland',r:'Europe',g:22000,l:79,s:13.2,p:37.6},
+      {n:'Portugal',r:'Europe',g:28000,l:82,s:9.7,p:10.4},{n:'Spain',r:'Europe',g:35000,l:84,s:10.6,p:49},
+      {n:'Sweden',r:'Europe',g:58000,l:83,s:12.7,p:10.6},{n:'United Kingdom',r:'Europe',g:49000,l:81,s:13.4,p:68},
+      {n:'Australia',r:'Oceania',g:65000,l:84,s:12.7,p:27},{n:'Fiji',r:'Oceania',g:6100,l:68,s:10.3,p:0.94},
+      {n:'New Zealand',r:'Oceania',g:49000,l:83,s:12.9,p:5.3},{n:'Papua New Guinea',r:'Oceania',g:3000,l:66,s:4.9,p:10.6}
+    ];
+
+    const REGIONS = ['Africa','Americas','Asia','Europe','Oceania'];
+    const COLORS = {
+      Africa: 0xe76f51,
+      Americas: 0x4dabf7,
+      Asia: 0xf4c95d,
+      Europe: 0x9b7ede,
+      Oceania: 0x55d6a7
+    };
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x07101d);
+
+    const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.05, 100);
+    camera.position.set(1.75, 1.65, 2.15);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType('local-floor');
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1.55, -1.75);
+    controls.minDistance = 1.1;
+    controls.maxDistance = 6;
+    controls.update();
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 2.0));
+    const key = new THREE.DirectionalLight(0xffffff, 1.7);
+    key.position.set(1, 3, 2);
+    scene.add(key);
+
+    const plot = new THREE.Group();
+    scene.add(plot);
+
+    const PLOT = {
+      xMin: -0.68, xMax: 0.68,
+      yMin: 1.12, yMax: 1.98,
+      zNear: -1.42, zFar: -2.18
+    };
+
+    const xRange = [800, 100000];
+    const yRange = [52, 86];
+    const zRange = [2, 15];
+
+    const activeRegions = Object.fromEntries(REGIONS.map(r => [r, true]));
+    const interactiveTargets = [];
+    const countryVisuals = [];
+    const regionLegend = new Map();
+    const billboardSprites = [];
+    let selectedCountry = null;
+    let lastActivity = performance.now();
+    let hoverTarget = null;
+    let currentXRMode = null;
+    let currentSession = null;
+
+    const clamp01 = v => Math.max(0, Math.min(1, v));
+    const lerp = (a,b,t) => a + (b-a)*t;
+    const logMap = v => clamp01((Math.log10(v)-Math.log10(xRange[0]))/(Math.log10(xRange[1])-Math.log10(xRange[0])));
+    const linMap = (v,a,b) => clamp01((v-a)/(b-a));
+
+    function worldPos(d) {
+      return new THREE.Vector3(
+        lerp(PLOT.xMin, PLOT.xMax, logMap(d.g)),
+        lerp(PLOT.yMin, PLOT.yMax, linMap(d.l, yRange[0], yRange[1])),
+        lerp(PLOT.zNear, PLOT.zFar, linMap(d.s, zRange[0], zRange[1]))
+      );
+    }
+
+    function makeTextSprite(text, opts = {}) {
+      const fontSize = opts.fontSize ?? 44;
+      const padding = opts.padding ?? 18;
+      const bg = opts.bg ?? 'rgba(4,10,20,0.82)';
+      const fg = opts.fg ?? '#ffffff';
+      const border = opts.border ?? 'rgba(255,255,255,0.16)';
+      const c = document.createElement('canvas');
+      const ctx = c.getContext('2d');
+      ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+      const width = Math.ceil(ctx.measureText(text).width + padding*2);
+      const height = fontSize + padding*2;
+      c.width = width;
+      c.height = height;
+      ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = bg;
+      roundRect(ctx, 1, 1, width-2, height-2, Math.min(18, height/4));
+      ctx.fill();
+      ctx.strokeStyle = border;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = fg;
+      ctx.textAlign = 'center';
+      ctx.fillText(text, width/2, height/2 + 1);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+      const sp = new THREE.Sprite(mat);
+      const scale = opts.scale ?? 0.0024;
+      sp.scale.set(width*scale, height*scale, 1);
+      sp.renderOrder = 20;
+      billboardSprites.push(sp);
+      return sp;
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      r = Math.min(r, w/2, h/2);
+      ctx.beginPath();
+      ctx.moveTo(x+r,y);
+      ctx.arcTo(x+w,y,x+w,y+h,r);
+      ctx.arcTo(x+w,y+h,x,y+h,r);
+      ctx.arcTo(x,y+h,x,y,r);
+      ctx.arcTo(x,y,x+w,y,r);
+      ctx.closePath();
+    }
+
+    function addLine(a, b, color=0x8da2bd, opacity=.65) {
+      const geo = new THREE.BufferGeometry().setFromPoints([a,b]);
+      const mat = new THREE.LineBasicMaterial({ color, transparent:true, opacity });
+      const line = new THREE.Line(geo, mat);
+      plot.add(line);
+      return line;
+    }
+
+    // Axes and subtle grid guides.
+    const origin = new THREE.Vector3(PLOT.xMin, PLOT.yMin, PLOT.zNear);
+    addLine(origin, new THREE.Vector3(PLOT.xMax, PLOT.yMin, PLOT.zNear), 0xd6e2f0, .9);
+    addLine(origin, new THREE.Vector3(PLOT.xMin, PLOT.yMax, PLOT.zNear), 0xd6e2f0, .9);
+    addLine(origin, new THREE.Vector3(PLOT.xMin, PLOT.yMin, PLOT.zFar), 0xd6e2f0, .9);
+
+    for (let i=1;i<=4;i++) {
+      const tx = lerp(PLOT.xMin,PLOT.xMax,i/4);
+      addLine(new THREE.Vector3(tx,PLOT.yMin,PLOT.zNear), new THREE.Vector3(tx,PLOT.yMax,PLOT.zNear), 0x49617d, .22);
+      const ty = lerp(PLOT.yMin,PLOT.yMax,i/4);
+      addLine(new THREE.Vector3(PLOT.xMin,ty,PLOT.zNear), new THREE.Vector3(PLOT.xMax,ty,PLOT.zNear), 0x49617d, .22);
+      const tz = lerp(PLOT.zNear,PLOT.zFar,i/4);
+      addLine(new THREE.Vector3(PLOT.xMin,PLOT.yMin,tz), new THREE.Vector3(PLOT.xMin,PLOT.yMax,tz), 0x49617d, .16);
+    }
+
+    const axisLabels = [
+      {t:'GDP/person (log)', p:new THREE.Vector3(0, PLOT.yMin-0.16, PLOT.zNear+0.02), s:.0019},
+      {t:'Life expectancy', p:new THREE.Vector3(PLOT.xMin-0.25, (PLOT.yMin+PLOT.yMax)/2, PLOT.zNear+0.02), s:.0019},
+      {t:'Mean schooling', p:new THREE.Vector3(PLOT.xMin-0.06, PLOT.yMin-0.17, PLOT.zFar-0.08), s:.0019},
+      {t:'$800', p:new THREE.Vector3(PLOT.xMin, PLOT.yMin-0.07, PLOT.zNear), s:.0015},
+      {t:'$100k', p:new THREE.Vector3(PLOT.xMax, PLOT.yMin-0.07, PLOT.zNear), s:.0015},
+      {t:'52 yrs', p:new THREE.Vector3(PLOT.xMin-0.22, PLOT.yMin+0.01, PLOT.zNear+0.05), s:.0015},
+      {t:'86 yrs', p:new THREE.Vector3(PLOT.xMin-0.22, PLOT.yMax, PLOT.zNear+0.05), s:.0015},
+      {t:'2 yrs', p:new THREE.Vector3(PLOT.xMin+0.12, PLOT.yMin+0.09, PLOT.zNear+0.05), s:.0015},
+      {t:'15 yrs', p:new THREE.Vector3(PLOT.xMin+0.12, PLOT.yMin+0.09, PLOT.zFar-0.04), s:.0015}
+    ];
+    for (const a of axisLabels) {
+      const sp = makeTextSprite(a.t, {fontSize:36, scale:a.s, bg:'rgba(4,10,20,.72)'});
+      sp.position.copy(a.p);
+      plot.add(sp);
+    }
+
+    // Country markers. 56 low-poly spheres are inexpensive on Quest 3.
+    const sphereGeo = new THREE.SphereGeometry(1, 12, 8);
+    const hitGeo = new THREE.SphereGeometry(1, 8, 6);
+    const hiddenHitMat = new THREE.MeshBasicMaterial({ transparent:true, opacity:0, depthWrite:false });
+
+    for (const d of countries) {
+      const marker = new THREE.Mesh(
+        sphereGeo,
+        new THREE.MeshStandardMaterial({ color: COLORS[d.r], roughness:.52, metalness:.02 })
+      );
+      const radius = 0.025 + 0.038 * Math.pow(Math.max(d.p,0.5)/1430, 0.30);
+      marker.scale.setScalar(radius);
+      marker.position.copy(worldPos(d));
+      marker.userData.baseScale = radius;
+      marker.userData.country = d;
+      plot.add(marker);
+
+      const hit = new THREE.Mesh(hitGeo, hiddenHitMat);
+      hit.position.copy(marker.position);
+      hit.scale.setScalar(Math.max(radius*2.4, 0.075));
+      hit.userData = { type:'country', data:d, marker };
+      plot.add(hit);
+      interactiveTargets.push(hit);
+      countryVisuals.push({ d, marker, hit });
+    }
+
+    // In-world title and persistent instruction card.
+    const title = makeTextSprite('COUNTRIES IN 5 DIMENSIONS', {fontSize:48, scale:.0022, bg:'rgba(4,10,20,.86)'});
+    title.position.set(0, 2.16, -1.75);
+    plot.add(title);
+
+    const instruction = makeTextSprite('POINT + TRIGGER TO EXPLORE', {fontSize:34, scale:.0018, bg:'rgba(4,10,20,.76)', fg:'#dbeafe'});
+    instruction.position.set(0, 2.06, -1.75);
+    plot.add(instruction);
+
+    // 3D legend with padded invisible hitboxes for forgiving selection.
+    const legendGroup = new THREE.Group();
+    legendGroup.position.set(0.93, 1.87, -1.76);
+    plot.add(legendGroup);
+
+    const legendTitle = makeTextSprite('REGION  •  TRIGGER TO TOGGLE', {fontSize:28, scale:.00165, bg:'rgba(4,10,20,.82)'});
+    legendTitle.position.set(0, .19, 0);
+    legendGroup.add(legendTitle);
+
+    REGIONS.forEach((region, i) => {
+      const y = .105 - i*.083;
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(.055,.055,.016),
+        new THREE.MeshBasicMaterial({color:COLORS[region]})
+      );
+      box.position.set(-.17,y,0);
+      legendGroup.add(box);
+
+      const label = makeTextSprite(region, {fontSize:30, scale:.0015, bg:'rgba(4,10,20,.72)'});
+      label.position.set(.05,y,0);
+      legendGroup.add(label);
+
+      const hit = new THREE.Mesh(new THREE.BoxGeometry(.48,.075,.06), hiddenHitMat);
+      hit.position.set(.03,y,0);
+      hit.userData = {type:'legend', region, box, label};
+      legendGroup.add(hit);
+      interactiveTargets.push(hit);
+      regionLegend.set(region, {box,label,hit});
+    });
+
+    // Detail panel is a canvas texture on a plane. It is billboarded toward the viewer.
+    const infoCanvas = document.createElement('canvas');
+    infoCanvas.width = 1024;
+    infoCanvas.height = 560;
+    const infoCtx = infoCanvas.getContext('2d');
+    const infoTex = new THREE.CanvasTexture(infoCanvas);
+    infoTex.colorSpace = THREE.SRGBColorSpace;
+    const infoPanel = new THREE.Mesh(
+      new THREE.PlaneGeometry(.86,.47),
+      new THREE.MeshBasicMaterial({map:infoTex,transparent:true,side:THREE.DoubleSide,depthTest:false})
+    );
+    infoPanel.position.set(.92,1.48,-1.72);
+    infoPanel.visible = false;
+    infoPanel.renderOrder = 30;
+    plot.add(infoPanel);
+
+    function drawInfo(d) {
+      const c = infoCtx;
+      c.clearRect(0,0,infoCanvas.width,infoCanvas.height);
+      c.fillStyle = 'rgba(4,10,20,.93)';
+      roundRect(c,8,8,1008,544,34); c.fill();
+      c.strokeStyle='rgba(255,255,255,.22)'; c.lineWidth=5; c.stroke();
+      c.fillStyle='#fff'; c.font='800 70px system-ui,sans-serif'; c.fillText(d.n,55,105);
+      c.fillStyle='#dbeafe'; c.font='600 40px system-ui,sans-serif'; c.fillText(d.r,58,165);
+      c.fillStyle='#fff'; c.font='650 38px system-ui,sans-serif';
+      c.fillText(`GDP per person: ~US$${d.g.toLocaleString()}`,58,250);
+      c.fillText(`Life expectancy: ~${d.l} years`,58,315);
+      c.fillText(`Mean schooling: ~${d.s.toFixed(1)} years`,58,380);
+      c.fillText(`Population: ~${d.p < 10 ? d.p.toFixed(1) : Math.round(d.p)} million`,58,445);
+      c.fillStyle='#fcd34d'; c.font='600 27px system-ui,sans-serif';
+      c.fillText('Illustrative approximate values, not a citable source',58,510);
+      infoTex.needsUpdate = true;
+      infoPanel.visible = true;
+    }
+
+    function setRegion(region, enabled) {
+      activeRegions[region] = enabled;
+      for (const cv of countryVisuals) {
+        if (cv.d.r === region) {
+          cv.marker.visible = enabled;
+          cv.hit.visible = enabled;
+        }
+      }
+      const li = regionLegend.get(region);
+      li.box.material.opacity = enabled ? 1 : .22;
+      li.box.material.transparent = !enabled;
+      li.label.material.opacity = enabled ? 1 : .28;
+      if (selectedCountry?.r === region && !enabled) {
+        selectedCountry = null;
+        infoPanel.visible = false;
+      }
+    }
+
+    function resetCleanState(resetDesktopCamera = false) {
+      REGIONS.forEach(r => setRegion(r,true));
+      selectedCountry = null;
+      infoPanel.visible = false;
+      clearHover();
+      if (resetDesktopCamera && !renderer.xr.isPresenting) {
+        camera.position.set(1.75,1.65,2.15);
+        controls.target.set(0,1.55,-1.75);
+        controls.update();
+      }
+      lastActivity = performance.now();
+    }
+
+    function activate(target) {
+      if (!target) return;
+      lastActivity = performance.now();
+      const u = target.userData;
+      if (u.type === 'country') {
+        selectedCountry = u.data;
+        drawInfo(u.data);
+      } else if (u.type === 'legend') {
+        setRegion(u.region, !activeRegions[u.region]);
+      }
+    }
+
+    function clearHover() {
+      if (!hoverTarget) return;
+      const u = hoverTarget.userData;
+      if (u.type === 'country') u.marker.scale.setScalar(u.marker.userData.baseScale);
+      if (u.type === 'legend') u.box.scale.setScalar(1);
+      hoverTarget = null;
+    }
+
+    function applyHover(target) {
+      if (target === hoverTarget) return;
+      clearHover();
+      hoverTarget = target;
+      if (!target) return;
+      const u = target.userData;
+      if (u.type === 'country') u.marker.scale.setScalar(u.marker.userData.baseScale*1.5);
+      if (u.type === 'legend') u.box.scale.setScalar(1.28);
+    }
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.far = 5;
+    const tempMatrix = new THREE.Matrix4();
+
+    function raycastFromController(controller) {
+      tempMatrix.identity().extractRotation(controller.matrixWorld);
+      raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      raycaster.ray.direction.set(0,0,-1).applyMatrix4(tempMatrix);
+      const hits = raycaster.intersectObjects(interactiveTargets, false);
+      return hits.length ? hits[0].object : null;
+    }
+
+    function buildController(index) {
+      const controller = renderer.xr.getController(index);
+      controller.userData.index = index;
+      const points = [new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1)];
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.75}));
+      line.name = 'ray';
+      line.scale.z = 4;
+      controller.add(line);
+      controller.addEventListener('selectstart', () => {
+        const t = raycastFromController(controller);
+        activate(t);
+      });
+      scene.add(controller);
+      return controller;
+    }
+    const controller0 = buildController(0);
+    const controller1 = buildController(1);
+
+    // Desktop pointer selection.
+    const mouse = new THREE.Vector2();
+    let mouseMovedAt = 0;
+    renderer.domElement.addEventListener('pointermove', e => {
+      mouse.x = (e.clientX / innerWidth)*2-1;
+      mouse.y = -(e.clientY / innerHeight)*2+1;
+      mouseMovedAt = performance.now();
+      lastActivity = mouseMovedAt;
+    });
+    renderer.domElement.addEventListener('pointerdown', e => {
+      if (renderer.xr.isPresenting) return;
+      mouse.x = (e.clientX / innerWidth)*2-1;
+      mouse.y = -(e.clientY / innerHeight)*2+1;
+      raycaster.setFromCamera(mouse,camera);
+      const hits = raycaster.intersectObjects(interactiveTargets,false);
+      if (hits.length) activate(hits[0].object);
+      lastActivity = performance.now();
+    });
+    renderer.domElement.addEventListener('wheel', () => lastActivity = performance.now(), {passive:true});
+
+    function updateHover() {
+      if (renderer.xr.isPresenting) {
+        const h0 = raycastFromController(controller0);
+        const h1 = raycastFromController(controller1);
+        applyHover(h0 || h1 || null);
+      } else if (performance.now() - mouseMovedAt < 2500) {
+        raycaster.setFromCamera(mouse,camera);
+        const hits = raycaster.intersectObjects(interactiveTargets,false);
+        applyHover(hits.length ? hits[0].object : null);
+      }
+    }
+
+    function faceViewer(obj) {
+      const cam = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
+      const p = new THREE.Vector3();
+      cam.getWorldPosition(p);
+      obj.lookAt(p);
+    }
+
+    const vrButton = document.getElementById('vrButton');
+    const arButton = document.getElementById('arButton');
+    const resetButton = document.getElementById('resetButton');
+    const statusEl = document.getElementById('status');
+
+    async function checkXR() {
+      if (!navigator.xr) {
+        statusEl.textContent = 'WebXR is not available in this browser. Desktop mode still works.';
+        return;
+      }
+      try {
+        const [vr, ar] = await Promise.all([
+          navigator.xr.isSessionSupported('immersive-vr'),
+          navigator.xr.isSessionSupported('immersive-ar')
+        ]);
+        vrButton.disabled = !vr;
+        arButton.disabled = !ar;
+        statusEl.textContent = vr || ar
+          ? `WebXR ready.${vr?' VR available.':''}${ar?' Passthrough / MR available.':''}`
+          : 'Immersive WebXR is not exposed by this browser/device. Desktop mode still works.';
+      } catch (err) {
+        statusEl.textContent = 'Could not query WebXR support. Desktop mode still works.';
+      }
+    }
+
+    async function startXR(mode) {
+      if (!navigator.xr || currentSession) return;
+      try {
+        const opts = mode === 'immersive-ar'
+          ? { requiredFeatures:['local-floor'], optionalFeatures:['dom-overlay'], domOverlay:{root:document.body} }
+          : { requiredFeatures:['local-floor'], optionalFeatures:['bounded-floor'] };
+        const session = await navigator.xr.requestSession(mode, opts);
+        currentSession = session;
+        currentXRMode = mode;
+        scene.background = mode === 'immersive-ar' ? null : new THREE.Color(0x07101d);
+        document.body.classList.add('xr-active');
+        controls.enabled = false;
+        resetCleanState(false);
+        await renderer.xr.setSession(session);
+        session.addEventListener('end', () => {
+          currentSession = null;
+          currentXRMode = null;
+          scene.background = new THREE.Color(0x07101d);
+          document.body.classList.remove('xr-active');
+          controls.enabled = true;
+          resetCleanState(true);
+        }, {once:true});
+      } catch (err) {
+        statusEl.textContent = `Could not start ${mode === 'immersive-ar' ? 'passthrough / MR' : 'VR'}: ${err.message || err.name}`;
+      }
+    }
+
+    vrButton.addEventListener('click', () => startXR('immersive-vr'));
+    arButton.addEventListener('click', () => startXR('immersive-ar'));
+    resetButton.addEventListener('click', () => resetCleanState(true));
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // Idle recovery: after 70 seconds without interaction, restore all regions and clear detail/hover.
+    // Desktop camera is left alone until explicit reset; headset state is cleaned without moving the user's tracked viewpoint.
+    function idleRecovery() {
+      if (performance.now() - lastActivity > 70000) {
+        REGIONS.forEach(r => { if (!activeRegions[r]) setRegion(r,true); });
+        selectedCountry = null;
+        infoPanel.visible = false;
+        clearHover();
+        lastActivity = performance.now();
+      }
+    }
+
+    const clock = new THREE.Clock();
+    renderer.setAnimationLoop(() => {
+      if (!renderer.xr.isPresenting) controls.update();
+      updateHover();
+      idleRecovery();
+      if (infoPanel.visible) faceViewer(infoPanel);
+      // Sprites face the camera automatically, so axis labels remain readable from arbitrary view angles.
+      renderer.render(scene,camera);
+    });
+
+    checkXR();
+  </script>
+</body>
+</html>
