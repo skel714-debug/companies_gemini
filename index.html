@@ -2,12 +2,40 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D VR Scatter Plot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Company Data Visualization (VR/MR)</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #111; font-family: sans-serif; }
-        #vr-button-container { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 999; display: flex; gap: 15px; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #111; color: white; font-family: sans-serif; }
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: rgba(15, 15, 15, 0.95); z-index: 10; text-align: center;
+        }
+        h1 { margin-bottom: 10px; }
+        p { max-width: 600px; margin-bottom: 30px; line-height: 1.5; color: #ccc; }
+        .btn-container { display: flex; gap: 20px; }
+        button {
+            padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer;
+            border: none; border-radius: 8px; background: #007bff; color: white; transition: 0.2s;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #444; cursor: not-allowed; }
+        #btnAR { background: #ff7b00; }
+        #btnAR:hover { background: #cc6200; }
     </style>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+</head>
+<body>
+    <div id="overlay">
+        <h1>3D Company Explorer</h1>
+        <p>Approximate and illustrative data for 50 major companies.<br>
+        On desktop: Drag to orbit, scroll to zoom.<br>
+        In Headset: Point and trigger to interact, grab space to rotate.</p>
+        <div class="btn-container">
+            <button id="btnVR" disabled>Checking VR...</button>
+            <button id="btnAR" disabled>Checking MR...</button>
+        </div>
+    </div>
+
     <script type="importmap">
         {
             "imports": {
@@ -16,292 +44,481 @@
             }
         }
     </script>
-</head>
-<body>
-    <div id="vr-button-container"></div>
+
     <script type="module">
         import * as THREE from 'three';
-        import { VRButton } from 'three/addons/webxr/VRButton.js';
-        import { ARButton } from 'three/addons/webxr/ARButton.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 
-        // --- SCENE SETUP ---
+        // --------------------------------------------------------
+        // 1. DATASET: 50 Real Companies (No Math.random)
+        // Revenue (B), Market Cap (B), Employees (1000s), Age (Yrs)
+        // --------------------------------------------------------
+        const companyData = [
+            // TECHNOLOGY
+            { name: "Apple", sector: "Technology", rev: 383, mc: 2800, emp: 161, age: 48 },
+            { name: "Microsoft", sector: "Technology", rev: 211, mc: 3000, emp: 221, age: 49 },
+            { name: "Alphabet", sector: "Technology", rev: 307, mc: 1800, emp: 182, age: 25 },
+            { name: "Meta", sector: "Technology", rev: 134, mc: 1200, emp: 67, age: 20 },
+            { name: "NVIDIA", sector: "Technology", rev: 60, mc: 2200, emp: 29, age: 31 },
+            { name: "TSMC", sector: "Technology", rev: 69, mc: 700, emp: 73, age: 37 },
+            { name: "Tencent", sector: "Technology", rev: 86, mc: 350, emp: 105, age: 25 },
+            { name: "Samsung", sector: "Technology", rev: 200, mc: 370, emp: 270, age: 86 },
+            { name: "Oracle", sector: "Technology", rev: 50, mc: 300, emp: 164, age: 47 },
+            { name: "Broadcom", sector: "Technology", rev: 35, mc: 600, emp: 20, age: 33 },
+            // RETAIL
+            { name: "Walmart", sector: "Retail", rev: 648, mc: 500, emp: 2100, age: 62 },
+            { name: "Amazon", sector: "Retail", rev: 574, mc: 1800, emp: 1525, age: 30 },
+            { name: "Costco", sector: "Retail", rev: 242, mc: 320, emp: 316, age: 40 },
+            { name: "Home Depot", sector: "Retail", rev: 152, mc: 370, emp: 471, age: 46 },
+            { name: "Alibaba", sector: "Retail", rev: 130, mc: 180, emp: 219, age: 25 },
+            { name: "Target", sector: "Retail", rev: 107, mc: 80, emp: 415, age: 122 },
+            { name: "Lowe's", sector: "Retail", rev: 86, mc: 140, emp: 285, age: 103 },
+            { name: "Inditex", sector: "Retail", rev: 39, mc: 150, emp: 161, age: 39 },
+            { name: "H&M", sector: "Retail", rev: 22, mc: 25, emp: 143, age: 77 },
+            { name: "Fast Retailing", sector: "Retail", rev: 18, mc: 90, emp: 57, age: 61 },
+            // ENERGY
+            { name: "Saudi Aramco", sector: "Energy", rev: 440, mc: 2000, emp: 70, age: 91 },
+            { name: "ExxonMobil", sector: "Energy", rev: 344, mc: 450, emp: 62, age: 139 },
+            { name: "Chevron", sector: "Energy", rev: 200, mc: 280, emp: 45, age: 145 },
+            { name: "Shell", sector: "Energy", rev: 316, mc: 200, emp: 103, age: 117 },
+            { name: "TotalEnergies", sector: "Energy", rev: 218, mc: 160, emp: 105, age: 100 },
+            { name: "BP", sector: "Energy", rev: 210, mc: 100, emp: 87, age: 115 },
+            { name: "ConocoPhillips", sector: "Energy", rev: 58, mc: 140, emp: 9, age: 107 },
+            { name: "Equinor", sector: "Energy", rev: 107, mc: 80, emp: 23, age: 52 },
+            { name: "Eni", sector: "Energy", rev: 102, mc: 50, emp: 32, age: 71 },
+            { name: "PetroChina", sector: "Energy", rev: 425, mc: 230, emp: 398, age: 25 },
+            // FINANCE
+            { name: "JPMorgan Chase", sector: "Finance", rev: 158, mc: 550, emp: 309, age: 225 },
+            { name: "Bank of America", sector: "Finance", rev: 98, mc: 280, emp: 213, age: 101 },
+            { name: "ICBC", sector: "Finance", rev: 120, mc: 250, emp: 415, age: 40 },
+            { name: "Visa", sector: "Finance", rev: 32, mc: 560, emp: 28, age: 65 },
+            { name: "Mastercard", sector: "Finance", rev: 25, mc: 420, emp: 33, age: 58 },
+            { name: "Wells Fargo", sector: "Finance", rev: 82, mc: 200, emp: 226, age: 172 },
+            { name: "HSBC", sector: "Finance", rev: 66, mc: 150, emp: 221, age: 159 },
+            { name: "Morgan Stanley", sector: "Finance", rev: 54, mc: 140, emp: 80, age: 89 },
+            { name: "Goldman Sachs", sector: "Finance", rev: 46, mc: 130, emp: 45, age: 155 },
+            { name: "Citigroup", sector: "Finance", rev: 78, mc: 115, emp: 239, age: 212 },
+            // HEALTHCARE
+            { name: "Johnson & Johnson", sector: "Healthcare", rev: 85, mc: 370, emp: 131, age: 138 },
+            { name: "UnitedHealth", sector: "Healthcare", rev: 371, mc: 450, emp: 440, age: 47 },
+            { name: "Novo Nordisk", sector: "Healthcare", rev: 33, mc: 560, emp: 64, age: 101 },
+            { name: "Eli Lilly", sector: "Healthcare", rev: 34, mc: 700, emp: 43, age: 148 },
+            { name: "Roche", sector: "Healthcare", rev: 65, mc: 220, emp: 103, age: 128 },
+            { name: "Pfizer", sector: "Healthcare", rev: 58, mc: 160, emp: 88, age: 175 },
+            { name: "Merck", sector: "Healthcare", rev: 60, mc: 320, emp: 72, age: 133 },
+            { name: "AbbVie", sector: "Healthcare", rev: 54, mc: 310, emp: 50, age: 11 },
+            { name: "Novartis", sector: "Healthcare", rev: 45, mc: 220, emp: 78, age: 28 },
+            { name: "AstraZeneca", sector: "Healthcare", rev: 45, mc: 200, emp: 89, age: 25 }
+        ];
+
+        const sectorColors = {
+            "Technology": 0x00bfff,
+            "Retail": 0xffa500,
+            "Energy": 0xff3333,
+            "Finance": 0x33cc33,
+            "Healthcare": 0xcc33ff
+        };
+
+        const sectorVisibility = {
+            "Technology": true, "Retail": true, "Energy": true, "Finance": true, "Healthcare": true
+        };
+
+        // --------------------------------------------------------
+        // 2. SETUP & RENDERER
+        // --------------------------------------------------------
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x222222);
-        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(0, 1.6, 1); 
-
+        // Clear color transparent for Passthrough AR support
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setClearColor(0x000000, 0); 
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
-        renderer.setClearColor(0x000000, 0); 
         document.body.appendChild(renderer.domElement);
 
-        const vrBtn = VRButton.createButton(renderer);
-        const arBtn = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor'] });
-        vrBtn.style.position = 'static'; arBtn.style.position = 'static';
-        document.getElementById('vr-button-container').append(vrBtn, arBtn);
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 1.5, 0.5); // Desktop start pos
 
-        renderer.xr.addEventListener('sessionstart', () => {
-            const session = renderer.xr.getSession();
-            if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
-                scene.background = null; 
-            }
-        });
-        renderer.xr.addEventListener('sessionend', () => { scene.background = new THREE.Color(0x222222); });
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1.5, -1.8);
+        controls.update();
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
         scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-        dirLight.position.set(2, 5, 3);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 5);
         scene.add(dirLight);
 
-        // --- DATA GENERATION ---
-        const sectors = ["Tech", "Finance", "Health", "Retail", "Energy"];
-        const colors = { "Tech": 0x3498db, "Finance": 0x2ecc71, "Health": 0xe74c3c, "Retail": 0xf1c40f, "Energy": 0x9b59b6 };
-        let activeSectors = { "Tech": true, "Finance": true, "Health": true, "Retail": true, "Energy": true };
-        
-        const data = [];
-        for (let i = 1; i <= 50; i++) {
-            data.push({
-                name: "Fictional Corp " + i,
-                revenue: Math.random() * 400 + 10,
-                marketCap: Math.random() * 2000 + 50,
-                employees: Math.floor(Math.random() * 490000 + 10000),
-                age: Math.floor(Math.random() * 100 + 5),
-                sector: sectors[Math.floor(Math.random() * sectors.length)]
-            });
-        }
-        
-        const maxRev = Math.max(...data.map(d => d.revenue));
-        const maxCap = Math.max(...data.map(d => d.marketCap));
-        const maxEmp = Math.max(...data.map(d => d.employees));
-
-        // --- UI HELPER ---
-        function createTextPanel(textLines, bgColor, textColor, w, h, fSize) {
+        // --------------------------------------------------------
+        // 3. UI GENERATION (Canvas Sprites - Opaque Backgrounds)
+        // --------------------------------------------------------
+        function createSprite(text, bgCol, fgCol, w, h, fontSize, isBold = false) {
             const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
             const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = bgCol;
+            ctx.fillRect(0, 0, w, h);
+            // Border
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(2, 2, w-4, h-4);
+            
+            ctx.fillStyle = fgCol;
+            ctx.font = `${isBold ? 'bold' : ''} ${fontSize}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, w/2, h/2);
+            
             const texture = new THREE.CanvasTexture(canvas);
-            const mesh = new THREE.Mesh(
-                new THREE.PlaneGeometry(w / 1000, h / 1000),
-                new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide })
-            );
-            mesh.userData.updateText = (newLines, overrideBgColor) => {
-                ctx.fillStyle = overrideBgColor || bgColor;
-                ctx.fillRect(0, 0, w, h);
-                ctx.fillStyle = textColor;
-                ctx.font = `bold ${fSize}px sans-serif`;
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                const lh = fSize * 1.3;
-                const startY = (h - (newLines.length - 1) * lh) / 2;
-                newLines.forEach((line, i) => ctx.fillText(line, w / 2, startY + i * lh));
-                texture.needsUpdate = true;
-            };
-            mesh.userData.updateText(textLines);
-            return mesh;
+            const material = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(w / 400, h / 400, 1);
+            sprite.userData = { canvas, ctx, texture }; // Keep for dynamic updates
+            return sprite;
         }
 
-        // --- BUILD SCENE GRAPH ---
-        const containerGroup = new THREE.Group();
-        containerGroup.position.set(0, 1.2, -1.8); 
-        scene.add(containerGroup);
+        // --------------------------------------------------------
+        // 4. PLOT CONSTRUCTION (1m cube at eye level)
+        // --------------------------------------------------------
+        const plotGroup = new THREE.Group();
+        plotGroup.position.set(0, 1.5, -1.8); // 1.8m in front, eye height
+        scene.add(plotGroup);
 
-        const graphGroup = new THREE.Group();
-        graphGroup.position.set(-0.5, -0.5, 0.5); 
-        containerGroup.add(graphGroup);
-
-        const intersectables = [];
-        const pointGroups = [];
-
-        // Axes (meeting at 0,0,0 of graphGroup, which is bottom-left-front)
-        const lineMat = new THREE.LineBasicMaterial({ color: 0x888888 });
-        const axesGeom = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(1.0, 0, 0), new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 1.0, 0), new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 0, -1.0)
+        // Axes (0 to 1 limits)
+        const axesMat = new THREE.LineBasicMaterial({ color: 0x888888 });
+        const axesGeo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0),
+            new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0),
+            new THREE.Vector3(0,1,0)
         ]);
-        graphGroup.add(new THREE.Line(axesGeom, lineMat));
+        const axesLines = new THREE.Line(axesGeo, axesMat);
+        plotGroup.add(axesLines);
 
-        // Labels
-        const lblX = createTextPanel(["Revenue →"], "#333", "#FFF", 300, 100, 36);
-        lblX.position.set(1.15, 0, 0); graphGroup.add(lblX);
-        const lblY = createTextPanel(["Market Cap ↑"], "#333", "#FFF", 300, 100, 36);
-        lblY.position.set(0, 1.1, 0); graphGroup.add(lblY);
-        const lblZ = createTextPanel(["Employees ↙"], "#333", "#FFF", 300, 100, 36);
-        lblZ.position.set(0, 0, -1.15); graphGroup.add(lblZ);
+        // Floor Plane for depth lines
+        const floorGeo = new THREE.PlaneGeometry(1, 1);
+        const floorMat = new THREE.MeshBasicMaterial({ color: 0x222222, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = Math.PI / 2;
+        floor.position.set(0.5, 0, 0.5);
+        plotGroup.add(floor);
 
-        // Data Points
-        const sphereGeom = new THREE.SphereGeometry(1, 16, 16);
-        data.forEach(d => {
-            const pGroup = new THREE.Group();
-            const px = d.revenue / maxRev;
-            const py = d.marketCap / maxCap;
-            const pz = -(d.employees / maxEmp);
-            pGroup.position.set(px, py, pz);
-            pGroup.userData = { isDataPoint: true, data: d, sector: d.sector };
+        // Axis Labels (Billboarded, opaque backing, no overlap)
+        const lblX = createSprite("Revenue (Log USD)", "#111", "#fff", 300, 60, 24);
+        lblX.position.set(1.1, 0, 0);
+        plotGroup.add(lblX);
+        const lblY = createSprite("Market Cap (Log USD)", "#111", "#fff", 300, 60, 24);
+        lblY.position.set(0, 1.1, 0);
+        plotGroup.add(lblY);
+        const lblZ = createSprite("Employees (Linear)", "#111", "#fff", 300, 60, 24);
+        lblZ.position.set(0, 0, 1.1);
+        plotGroup.add(lblZ);
+
+        // Scene Instructions & Disclaimer
+        const instrSprite = createSprite("Point & Trigger to view. Grab empty space & twist to rotate.", "#0a2a4a", "#fff", 800, 80, 28, true);
+        instrSprite.position.set(0.5, 1.25, 0);
+        plotGroup.add(instrSprite);
+
+        const discSprite = createSprite("Note: Figures are approximate and illustrative only.", "#331111", "#aaa", 600, 60, 22);
+        discSprite.position.set(0.5, -0.2, 0.5);
+        plotGroup.add(discSprite);
+
+        // Interactables Array for Raycasting
+        const interactables = [];
+        const pointData = [];
+
+        // Map Data to 3D Space
+        // Rev log(10 to 1000)->1.0 to 3.0.  MC log(10 to 3100)->1.0 to 3.5. Emp (0 to 2500)
+        companyData.forEach(c => {
+            const posX = (Math.log10(c.rev) - 1.0) / 2.0; 
+            const posY = (Math.log10(c.mc) - 1.0) / 2.5; 
+            const posZ = c.emp / 2500;
+            const radius = 0.01 + (c.age / 250) * 0.03; // Size by age
+
+            // Visual Sphere
+            const mat = new THREE.MeshStandardMaterial({ color: sectorColors[c.sector] });
+            const geo = new THREE.SphereGeometry(radius, 16, 16);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(posX, posY, posZ);
+            plotGroup.add(mesh);
+
+            // Invisible enlarged collider for forgiving pointing
+            const colGeo = new THREE.SphereGeometry(radius * 2.5, 8, 8);
+            const colMat = new THREE.MeshBasicMaterial({ visible: false });
+            const collider = new THREE.Mesh(colGeo, colMat);
+            collider.position.set(posX, posY, posZ);
+            collider.userData = { type: 'company', company: c, visualMesh: mesh };
+            plotGroup.add(collider);
+            interactables.push(collider);
+
+            // Depth Drop Line
+            const lineGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(posX, posY, posZ),
+                new THREE.Vector3(posX, 0, posZ)
+            ]);
+            const lineMat = new THREE.LineBasicMaterial({ color: sectorColors[c.sector], transparent: true, opacity: 0.4 });
+            const dropLine = new THREE.Line(lineGeo, lineMat);
+            plotGroup.add(dropLine);
+
+            pointData.push({ sector: c.sector, mesh, collider, dropLine, baseColor: sectorColors[c.sector] });
+        });
+
+        // Legend Generation
+        const legendKeys = Object.keys(sectorColors);
+        legendKeys.forEach((sector, i) => {
+            const legSprite = createSprite(` ${sector} `, "#222", "#fff", 200, 50, 24);
+            legSprite.position.set(1.2, 0.8 - (i * 0.15), 0.5);
+            legSprite.userData = { type: 'legend', sector: sector };
+            plotGroup.add(legSprite);
+            interactables.push(legSprite);
+        });
+
+        // 3D Exit Button
+        const exitBtn = createSprite("[ EXIT VR ]", "#cc0000", "#ffffff", 200, 60, 28, true);
+        exitBtn.position.set(1.2, 1.1, 0.5);
+        exitBtn.userData = { type: 'exit' };
+        plotGroup.add(exitBtn);
+        interactables.push(exitBtn);
+
+        // Details Panel (Dynamic Canvas)
+        const detailsSprite = createSprite("", "#111", "#fff", 600, 300, 24);
+        detailsSprite.position.set(-0.5, 0.8, 0.5);
+        detailsSprite.visible = false;
+        plotGroup.add(detailsSprite);
+
+        function updateDetails(c) {
+            const ctx = detailsSprite.userData.ctx;
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, 600, 300);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(2, 2, 596, 296);
+
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 42px sans-serif';
+            ctx.fillText(c.name, 300, 50);
             
-            const radius = 0.01 + (d.age / 150) * 0.03;
-            const visual = new THREE.Mesh(sphereGeom, new THREE.MeshLambertMaterial({ color: colors[d.sector] }));
-            visual.scale.set(radius, radius, radius);
-            pGroup.add(visual);
+            ctx.font = '28px sans-serif';
+            ctx.fillStyle = '#' + sectorColors[c.sector].toString(16).padStart(6, '0');
+            ctx.fillText(c.sector, 300, 100);
 
-            const collider = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({ visible: false }));
-            collider.userData = pGroup.userData; 
-            pGroup.add(collider);
-            intersectables.push(collider);
+            ctx.fillStyle = '#ddd';
+            ctx.font = '26px sans-serif';
+            ctx.fillText(`Revenue: $${c.rev} Billion`, 300, 160);
+            ctx.fillText(`Market Cap: $${c.mc} Billion`, 300, 200);
+            ctx.fillText(`Employees: ${c.emp.toLocaleString()}k  |  Age: ${c.age} yrs`, 300, 250);
 
-            const depthLine = new THREE.Line(
-                new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0, -py, 0)]),
-                new THREE.LineBasicMaterial({ color: colors[d.sector], transparent: true, opacity: 0.5 })
-            );
-            pGroup.add(depthLine);
+            detailsSprite.userData.texture.needsUpdate = true;
+            detailsSprite.visible = true;
+        }
 
-            graphGroup.add(pGroup);
-            pointGroups.push(pGroup);
-        });
-
-        // UI Panels
-        const titlePanel = createTextPanel(["ILLUSTRATIVE DATA ONLY", "50 Fictional Companies"], "#111", "#AAA", 600, 150, 32);
-        titlePanel.position.set(0, 0.7, 0); containerGroup.add(titlePanel);
-
-        const instructionPanel = createTextPanel(["Welcome! Point & pull trigger to explore.", "Grab empty space and twist to rotate."], "#2980b9", "#FFF", 800, 150, 36);
-        instructionPanel.position.set(0, 0.9, 0); containerGroup.add(instructionPanel);
-
-        const detailsPanel = createTextPanel([""], "#222", "#FFF", 600, 400, 40);
-        detailsPanel.position.set(0, 0.9, 0); detailsPanel.visible = false;
-        containerGroup.add(detailsPanel);
-
-        const exitPanel = createTextPanel(["EXIT VR/AR"], "#c0392b", "#FFF", 400, 150, 48);
-        exitPanel.position.set(0, -0.6, 0); containerGroup.add(exitPanel);
-        exitPanel.userData = { isExit: true };
-        intersectables.push(exitPanel);
-
-        const legendGroup = new THREE.Group();
-        legendGroup.position.set(0.7, 0.2, 0);
-        sectors.forEach((sec, i) => {
-            const hexColor = '#' + colors[sec].toString(16).padStart(6, '0');
-            const leg = createTextPanel([sec], hexColor, "#FFF", 250, 80, 36);
-            leg.position.set(0, -i * 0.12, 0);
-            leg.userData = { isLegend: true, sector: sec };
-            legendGroup.add(leg);
-            intersectables.push(leg);
-        });
-        containerGroup.add(legendGroup);
-
-        // --- INTERACTION & LOGIC ---
-        let lastInteractionTime = performance.now();
-        const updateActivity = () => { lastInteractionTime = performance.now(); };
-
-        const updatePointsVisibility = () => {
-            pointGroups.forEach(p => p.visible = activeSectors[p.userData.sector]);
-        };
-
-        const handleSelect = (hit) => {
-            updateActivity();
-            if (hit.userData.isDataPoint) {
-                const d = hit.userData.data;
-                const hexColor = '#' + colors[d.sector].toString(16).padStart(6, '0');
-                detailsPanel.userData.updateText([
-                    d.name, `Sector: ${d.sector}`,
-                    `Revenue: $${d.revenue.toFixed(1)}B`, `Market Cap: $${d.marketCap.toFixed(1)}B`,
-                    `Employees: ${(d.employees/1000).toFixed(1)}k`, `Age: ${d.age} yrs`
-                ], hexColor);
-                detailsPanel.visible = true; instructionPanel.visible = false;
-            } else if (hit.userData.isLegend) {
-                const s = hit.userData.sector;
-                activeSectors[s] = !activeSectors[s];
-                hit.material.opacity = activeSectors[s] ? 1.0 : 0.4;
-                hit.material.transparent = true;
-                updatePointsVisibility();
-            } else if (hit.userData.isExit) {
-                renderer.xr.getSession()?.end();
-            }
-        };
-
-        // Desktop Fallback
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.target.set(0, 1.2, -1.8); controls.update();
-        const raycaster = new THREE.Raycaster();
-        window.addEventListener('pointerdown', (e) => {
-            if (renderer.xr.isPresenting) return;
-            const pointer = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-            raycaster.setFromCamera(pointer, camera);
-            const intersects = raycaster.intersectObjects(intersectables, false);
-            if (intersects.length > 0) handleSelect(intersects[0].object);
-            else updateActivity();
-        });
-
-        // VR Controllers
+        // --------------------------------------------------------
+        // 5. VR/AR INTERACTION LOGIC
+        // --------------------------------------------------------
+        let hoveredObject = null;
         let isDragging = false;
-        let dragController = null;
-        const prevPos = new THREE.Vector3();
-        const tempMatrix = new THREE.Matrix4();
-
-        const onSelectStart = (e) => {
-            const c = e.target;
-            tempMatrix.identity().extractRotation(c.matrixWorld);
-            raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
-            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-            const intersects = raycaster.intersectObjects(intersectables, false);
-
-            if (intersects.length > 0) {
-                handleSelect(intersects[0].object);
-            } else {
-                isDragging = true; dragController = c;
-                prevPos.setFromMatrixPosition(c.matrixWorld);
-            }
-        };
-        const onSelectEnd = () => { isDragging = false; dragController = null; updateActivity(); };
+        let activeController = null;
+        const prevControllerPos = new THREE.Vector3();
+        let lastInteractionTime = performance.now();
 
         const controller1 = renderer.xr.getController(0);
+        const controller2 = renderer.xr.getController(1);
+        scene.add(controller1); scene.add(controller2);
+
+        // Controller Beams
+        const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-10)]);
+        const beamMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+        const beam1 = new THREE.Line(beamGeo, beamMat);
+        const beam2 = new THREE.Line(beamGeo, beamMat);
+        controller1.add(beam1); controller2.add(beam2);
+
+        const raycaster = new THREE.Raycaster();
+
+        function onSelectStart(event) {
+            lastInteractionTime = performance.now();
+            const controller = event.target;
+            if (hoveredObject) {
+                const ud = hoveredObject.userData;
+                if (ud.type === 'exit') {
+                    renderer.xr.getSession().end();
+                } else if (ud.type === 'company') {
+                    updateDetails(ud.company);
+                } else if (ud.type === 'legend') {
+                    const sec = ud.sector;
+                    sectorVisibility[sec] = !sectorVisibility[sec];
+                    // Update visual state of points
+                    pointData.forEach(p => {
+                        if (p.sector === sec) {
+                            const vis = sectorVisibility[sec];
+                            p.mesh.visible = vis;
+                            p.collider.visible = vis;
+                            p.dropLine.visible = vis;
+                        }
+                    });
+                    // Grey out legend sprite if hidden
+                    const ctx = hoveredObject.userData.ctx;
+                    ctx.fillStyle = sectorVisibility[sec] ? '#222' : '#555';
+                    ctx.fillRect(0,0,200,50);
+                    ctx.fillStyle = sectorVisibility[sec] ? '#fff' : '#888';
+                    ctx.font = '24px sans-serif';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(` ${sec} `, 100, 25);
+                    hoveredObject.userData.texture.needsUpdate = true;
+                }
+            } else {
+                // Grab space to twist
+                isDragging = true;
+                activeController = controller;
+                prevControllerPos.copy(activeController.position);
+            }
+        }
+
+        function onSelectEnd() {
+            isDragging = false;
+            activeController = null;
+        }
+
         controller1.addEventListener('selectstart', onSelectStart);
         controller1.addEventListener('selectend', onSelectEnd);
-        scene.add(controller1);
-        
-        const controller2 = renderer.xr.getController(1);
         controller2.addEventListener('selectstart', onSelectStart);
         controller2.addEventListener('selectend', onSelectEnd);
-        scene.add(controller2);
 
-        const cFactory = new XRControllerModelFactory();
-        const cg1 = renderer.xr.getControllerGrip(0);
-        cg1.add(cFactory.createControllerModel(cg1)); scene.add(cg1);
-        const cg2 = renderer.xr.getControllerGrip(1);
-        cg2.add(cFactory.createControllerModel(cg2)); scene.add(cg2);
+        // --------------------------------------------------------
+        // 6. MAIN RENDER LOOP & IDLE RECOVERY
+        // --------------------------------------------------------
+        function getIntersections(controller) {
+            const tempMatrix = new THREE.Matrix4();
+            tempMatrix.identity().extractRotation(controller.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+            return raycaster.intersectObjects(interactables, false);
+        }
 
-        const pointerGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-10)]);
-        const pointerLine = new THREE.Line(pointerGeom, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
-        controller1.add(pointerLine.clone()); controller2.add(pointerLine.clone());
-
-        // --- RENDER LOOP ---
         renderer.setAnimationLoop(() => {
-            if (isDragging && dragController) {
-                const curPos = new THREE.Vector3().setFromMatrixPosition(dragController.matrixWorld);
-                containerGroup.rotation.y += (curPos.x - prevPos.x) * 10;
-                containerGroup.rotation.x += (curPos.y - prevPos.y) * 10;
-                prevPos.copy(curPos);
-                updateActivity();
+            const now = performance.now();
+
+            // IDLE RECOVERY (45 seconds)
+            if (now - lastInteractionTime > 45000) {
+                plotGroup.rotation.set(0,0,0);
+                detailsSprite.visible = false;
+                instrSprite.visible = true;
+                // Restore all sectors
+                Object.keys(sectorVisibility).forEach(sec => sectorVisibility[sec] = true);
+                pointData.forEach(p => { p.mesh.visible = true; p.collider.visible = true; p.dropLine.visible = true; });
+                // Reset legend visual
+                interactables.filter(obj => obj.userData.type === 'legend').forEach(leg => {
+                    const ctx = leg.userData.ctx;
+                    ctx.fillStyle = '#222'; ctx.fillRect(0,0,200,50);
+                    ctx.fillStyle = '#fff'; ctx.fillText(` ${leg.userData.sector} `, 100, 25);
+                    leg.userData.texture.needsUpdate = true;
+                });
+                lastInteractionTime = now; 
             }
 
-            if (performance.now() - lastInteractionTime > 45000) {
-                containerGroup.rotation.set(0, 0, 0);
-                activeSectors = { "Tech": true, "Finance": true, "Health": true, "Retail": true, "Energy": true };
-                updatePointsVisibility();
-                legendGroup.children.forEach(l => { l.material.opacity = 1.0; });
-                detailsPanel.visible = false; instructionPanel.visible = true;
-                lastInteractionTime = performance.now();
+            // Raycasting & Hover Highlight
+            if (renderer.xr.isPresenting) {
+                let hit = false;
+                const activeCtrl = controller1.visible ? controller1 : controller2; 
+                if (activeCtrl) {
+                    const intersects = getIntersections(activeCtrl);
+                    if (intersects.length > 0) {
+                        hit = true;
+                        const object = intersects[0].object;
+                        if (hoveredObject !== object) {
+                            // Reset old
+                            if (hoveredObject && hoveredObject.userData.type === 'company') {
+                                hoveredObject.userData.visualMesh.scale.set(1, 1, 1);
+                                hoveredObject.userData.visualMesh.material.emissive.setHex(0x000000);
+                            }
+                            // Set new
+                            hoveredObject = object;
+                            if (hoveredObject.userData.type === 'company') {
+                                hoveredObject.userData.visualMesh.scale.set(1.5, 1.5, 1.5);
+                                hoveredObject.userData.visualMesh.material.emissive.setHex(0x555555);
+                            }
+                        }
+                    }
+                }
+                
+                if (!hit && hoveredObject) {
+                    if (hoveredObject.userData.type === 'company') {
+                        hoveredObject.userData.visualMesh.scale.set(1, 1, 1);
+                        hoveredObject.userData.visualMesh.material.emissive.setHex(0x000000);
+                    }
+                    hoveredObject = null;
+                }
+
+                // Grab & Twist Logic
+                if (isDragging && activeController) {
+                    const curPos = activeController.position;
+                    const dX = curPos.x - prevControllerPos.x;
+                    const dY = curPos.y - prevControllerPos.y;
+                    
+                    // Horizontal hand movement twists around Y. Vertical around X.
+                    plotGroup.rotation.y += dX * 5; 
+                    plotGroup.rotation.x += dY * 5;
+
+                    prevControllerPos.copy(curPos);
+                    lastInteractionTime = now;
+                }
             }
 
+            if (!renderer.xr.isPresenting) controls.update();
             renderer.render(scene, camera);
         });
+
+        // --------------------------------------------------------
+        // 7. HTML BUTTONS TO LAUNCH XR
+        // --------------------------------------------------------
+        const btnVR = document.getElementById('btnVR');
+        const btnAR = document.getElementById('btnAR');
+
+        if ('xr' in navigator) {
+            navigator.xr.isSessionSupported('immersive-vr').then(supported => {
+                if (supported) {
+                    btnVR.innerText = "Enter VR";
+                    btnVR.disabled = false;
+                    btnVR.onclick = () => startXR('immersive-vr');
+                } else btnVR.innerText = "VR Not Supported";
+            });
+            navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+                if (supported) {
+                    btnAR.innerText = "Enter Mixed Reality";
+                    btnAR.disabled = false;
+                    btnAR.onclick = () => startXR('immersive-ar');
+                } else btnAR.innerText = "MR Not Supported";
+            });
+        }
+
+        async function startXR(mode) {
+            const sessionInit = { optionalFeatures: ['local-floor', 'bounded-floor'] };
+            const session = await navigator.xr.requestSession(mode, sessionInit);
+            renderer.xr.setSession(session);
+            document.getElementById('overlay').style.display = 'none';
+            lastInteractionTime = performance.now();
+            session.addEventListener('end', () => {
+                document.getElementById('overlay').style.display = 'flex';
+                plotGroup.rotation.set(0,0,0);
+            });
+        }
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Simple desktop click raycaster for details (Fallback)
+        const mouse = new THREE.Vector2();
+        window.addEventListener('click', (e) => {
+            if (renderer.xr.isPresenting) return;
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactables, false);
+            if (intersects.length > 0 && intersects[0].object.userData.type === 'company') {
+                updateDetails(intersects[0].object.userData.company);
+                lastInteractionTime = performance.now();
+            }
         });
     </script>
 </body>
